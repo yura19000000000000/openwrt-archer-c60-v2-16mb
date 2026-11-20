@@ -31,20 +31,16 @@ jobs:
       - name: Patch Archer C60 v2 for 16MB Flash
         working-directory: openwrt
         run: |
-          # 1. Обновляем IMAGE_SIZE в generic-tp-link.mk до 16160k (0xfc8000)
           sed -i '/define Device\/tplink_archer-c60-v2/,/endef/ s/IMAGE_SIZE := .*/IMAGE_SIZE := 16160k/' target/linux/ath79/image/generic-tp-link.mk
 
-          # 2. Обновляем смещения разделов в DTS файлах Archer C60 под 16 МБ
           for f in target/linux/ath79/dts/*archer-c60*; do
-            sed -i 's/0x7c8000/0xfc8000/g; s/0x7e8000/0xfe8000/g; s/0x7f0000/0xff0000/g; s/7e8000/fe8000/g; s/7f0000/ff0000/g' "$f"
+            sed -i 's/reg = <0x020000 0x7[a-f0-9]\+>;/reg = <0x020000 0xfc8000>;/g; s/0x7b0000/0xfc8000/g; s/0x7c0000/0xfc8000/g; s/0x7c8000/0xfc8000/g; s/0x7d0000/0xfe8000/g; s/0x7e8000/0xfe8000/g; s/0x7f0000/0xff0000/g; s/7d0000/fe8000/g; s/7e8000/fe8000/g; s/7f0000/ff0000/g' "$f"
           done
 
-          # 3. Добавляем хук патчинга tplink-safeloader.c при сборке firmware-utils
           printf '\ndefine Host/PatchArcherC60V2\n\t$(SED) '\''s/{"firmware", 0x20000, 0x7c8000}/{"firmware", 0x20000, 0xfc8000}/g; s/{"certyficate", 0x7e8000, 0x08000}/{"certyficate", 0xfe8000, 0x08000}/g; s/{"radio", 0x7f0000, 0x10000}/{"radio", 0xff0000, 0x10000}/g'\'' $(HOST_BUILD_DIR)/src/tplink-safeloader.c\nendef\nHooks/HostPrepare/Post += Host/PatchArcherC60V2\n' >> tools/firmware-utils/Makefile
 
-          # Вывод измененных строк в лог для контроля
           grep -A 5 "define Device/tplink_archer-c60-v2" target/linux/ath79/image/generic-tp-link.mk
-          grep -n "0xfc8000\|0xfe8000\|0xff0000" target/linux/ath79/dts/*archer-c60*
+          sed -n '45,78p' target/linux/ath79/dts/qca9561_tplink_archer-c60-v2.dts
           tail -n 5 tools/firmware-utils/Makefile
 
       - name: Update and install feeds
@@ -72,6 +68,7 @@ jobs:
         with:
           name: openwrt-archer-c60-v2-16mb
           path: openwrt/bin/targets/ath79/generic/*tplink_archer-c60-v2*
+
 
 
 
