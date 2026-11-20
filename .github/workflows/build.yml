@@ -31,51 +31,25 @@ jobs:
       - name: Patch Archer C60 v2 for 16MB Flash
         working-directory: openwrt
         run: |
-          python3 -c '
-          import glob, re
+          # 1. Увеличиваем лимит размера образа в generic-tp-link.mk до 16064k
+          sed -i '/define Device\/tplink_archer-c60-v2/,/endef/ s/IMAGE_SIZE := .*/IMAGE_SIZE := 16064k/' target/linux/ath79/image/generic-tp-link.mk
 
-          # 1. Правка Makefile (generic-tp-link.mk)
-          mk_path = "target/linux/ath79/image/generic-tp-link.mk"
-          with open(mk_path, "r") as f:
-              mk = f.read()
-          mk_new = re.sub(
-              r"(define Device/tplink_archer-c60-v2.*?IMAGE_SIZE := )\d+k",
-              r"\g<1>16064k",
-              mk,
-              flags=re.S
-          )
-          assert mk != mk_new, "Failed to patch generic-tp-link.mk"
-          with open(mk_path, "w") as f:
-              f.write(mk_new)
-          print("OK: generic-tp-link.mk patched")
+          # 2. Обновляем разметку разделов во всех DTS/DTSI файлах Archer C60 под 16 МБ
+          for f in target/linux/ath79/dts/*archer-c60*; do
+            sed -i 's/reg = <0x020000 0x7[a-f0-9]\+>;/reg = <0x020000 0xfb0000>;/g' "$f"
+            sed -i 's/partition@7d0000 {/partition@fd0000 {/g' "$f"
+            sed -i 's/reg = <0x7d0000 0x020000>;/reg = <0xfd0000 0x020000>;/g' "$f"
+            sed -i 's/partition@7f0000 {/partition@ff0000 {/g' "$f"
+            sed -i 's/reg = <0x7f0000 0x010000>;/reg = <0xff0000 0x010000>;/g' "$f"
+          done
 
-          # 2. Автопоиск и правка DTS/DTSI для Archer C60 v2
-          dts_patched = False
-          for path in glob.glob("target/linux/ath79/dts/*archer-c60*"):
-              with open(path, "r") as f:
-                  data = f.read()
-              if "0x7d0000" in data and "0x7f0000" in data:
-                  data = re.sub(r"reg = <0x020000 0x7[a-f0-9]+>;", "reg = <0x020000 0xfb0000>;", data)
-                  data = data.replace("partition@7d0000 {", "partition@fd0000 {")
-                  data = data.replace("reg = <0x7d0000 0x020000>;", "reg = <0xfd0000 0x020000>;")
-                  data = data.replace("partition@7f0000 {", "partition@ff0000 {")
-                  data = data.replace("reg = <0x7f0000 0x010000>;", "reg = <0xff0000 0x010000>;")
-                  with open(path, "w") as f:
-                      f.write(data)
-                  print(f"OK: {path} patched")
-                  dts_patched = True
-          assert dts_patched, "DTS file with 0x7d0000/0x7f0000 not found"
-          '
+          # 3. Добавляем автоматический патчинг tplink-safeloader.c при сборке утилит
+          printf '\ndefine Host/PatchArcherC60V2\n\t$(SED) '\''s/{"file-system", 0x1c0000, 0x610000}/{"file-system", 0x1c0000, 0xe10000}/g'\'' $(HOST_BUILD_DIR)/src/tplink-safeloader.c\n\t$(SED) '\''s/0x7d0000,/0xfd0000,/g; s/0x7d0200,/0xfd0200,/g; s/0x7d0400,/0xfd0400,/g; s/0x7d0800,/0xfd0800,/g; s/0x7d1000,/0xfd1000,/g; s/0x7d2000,/0xfd2000,/g; s/0x7d3000,/0xfd3000,/g; s/0x7d4000,/0xfd4000,/g; s/0x7d7000,/0xfd7000,/g; s/0x7db000,/0xfdb000,/g; s/0x7df000,/0xfdf000,/g; s/0x7e8000,/0xfe8000,/g; s/0x7f0000,/0xff0000,/g'\'' $(HOST_BUILD_DIR)/src/tplink-safeloader.c\nendef\nHooks/HostPrepare/Post += Host/PatchArcherC60V2\n' >> tools/firmware-utils/Makefile
 
-          # 3. Автоматический патчинг tplink-safeloader.c при распаковке firmware-utils
-          cat >> tools/firmware-utils/Makefile << 'EOF'
-
-          define Host/PatchArcherC60V2
-          	$(SED) 's/{"file-system", 0x1c0000, 0x610000}/{"file-system", 0x1c0000, 0xe10000}/g' $(HOST_BUILD_DIR)/src/tplink-safeloader.c
-          	$(SED) 's/0x7d0000,/0xfd0000,/g; s/0x7d0200,/0xfd0200,/g; s/0x7d0400,/0xfd0400,/g; s/0x7d0800,/0xfd0800,/g; s/0x7d1000,/0xfd1000,/g; s/0x7d2000,/0xfd2000,/g; s/0x7d3000,/0xfd3000,/g; s/0x7d4000,/0xfd4000,/g; s/0x7d7000,/0xfd7000,/g; s/0x7db000,/0xfdb000,/g; s/0x7df000,/0xfdf000,/g; s/0x7e8000,/0xfe8000,/g; s/0x7f0000,/0xff0000,/g' $(HOST_BUILD_DIR)/src/tplink-safeloader.c
-          endef
-          Hooks/HostPrepare/Post += Host/PatchArcherC60V2
-          EOF
+          # Проверка, что правки применились
+          grep -A 5 "define Device/tplink_archer-c60-v2" target/linux/ath79/image/generic-tp-link.mk
+          grep -n "0xfb0000\|0xfd0000\|0xff0000" target/linux/ath79/dts/*archer-c60*
+          tail -n 6 tools/firmware-utils/Makefile
 
       - name: Update and install feeds
         working-directory: openwrt
