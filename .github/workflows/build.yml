@@ -31,22 +31,41 @@ jobs:
       - name: Patch Archer C60 v2 for 16MB Flash (DTS and Makefile)
         working-directory: openwrt
         run: |
-          # 1. Увеличиваем максимальный размер образа в Makefile с 7872k до 16064k
-          sed -i '/define Device\/tplink_archer-c60-v2/,/endef/ s/IMAGE_SIZE := .*/IMAGE_SIZE := 16064k/' target/linux/ath79/image/generic-tp-link.mk
+          python3 - << 'EOF'
+          import glob, os, re
 
-          # 2. Обновляем разметку разделов в qca9561_tplink_archer-c60-v1.dtsi под 16 МБ
-          python3 -c '
-          path = "target/linux/ath79/dts/qca9561_tplink_archer-c60-v1.dtsi"
-          with open(path, "r") as f:
-              data = f.read()
-          data = data.replace("reg = <0x020000 0x7b0000>;", "reg = <0x020000 0xfb0000>;")
-          data = data.replace("partition@7d0000 {", "partition@fd0000 {")
-          data = data.replace("reg = <0x7d0000 0x020000>;", "reg = <0xfd0000 0x020000>;")
-          data = data.replace("partition@7f0000 {", "partition@ff0000 {")
-          data = data.replace("reg = <0x7f0000 0x010000>;", "reg = <0xff0000 0x010000>;")
-          with open(path, "w") as f:
-              f.write(data)
-          '
+          # 1. Правка Makefile (generic-tp-link.mk)
+          mk_path = "target/linux/ath79/image/generic-tp-link.mk"
+          with open(mk_path, "r") as f:
+              mk = f.read()
+          mk_new = re.sub(
+              r'(define Device/tplink_archer-c60-v2.*?IMAGE_SIZE := )\d+k',
+              r'\g<1>16064k',
+              mk,
+              flags=re.S
+          )
+          assert mk != mk_new, "Не удалось обновить IMAGE_SIZE в generic-tp-link.mk"
+          with open(mk_path, "w") as f:
+              f.write(mk_new)
+          print("OK: generic-tp-link.mk patched")
+
+          # 2. Автопоиск и правка нужного DTS/DTSI файла для Archer C60 v2
+          dts_patched = False
+          for path in glob.glob("target/linux/ath79/dts/*archer-c60*"):
+              with open(path, "r") as f:
+                  data = f.read()
+              if "0x7d0000" in data and "0x7f0000" in data:
+                  data = re.sub(r'reg = <0x020000 0x7[a-f0-9]+>;', 'reg = <0x020000 0xfb0000>;', data)
+                  data = data.replace("partition@7d0000 {", "partition@fd0000 {")
+                  data = data.replace("reg = <0x7d0000 0x020000>;", "reg = <0xfd0000 0x020000>;")
+                  data = data.replace("partition@7f0000 {", "partition@ff0000 {")
+                  data = data.replace("reg = <0x7f0000 0x010000>;", "reg = <0xff0000 0x010000>;")
+                  with open(path, "w") as f:
+                      f.write(data)
+                  print(f"OK: {path} patched")
+                  dts_patched = True
+          assert dts_patched, "Не найден DTS файл с разметкой 0x7d0000 / 0x7f0000"
+          EOF
 
           # 3. Создаем патч для утилиты tplink-safeloader.c под 16 МБ
           mkdir -p tools/firmware-utils/patches
@@ -90,6 +109,7 @@ jobs:
            			{NULL, 0, 0}
            		},
           EOF
+
 
       - name: Update and install feeds
         working-directory: openwrt
