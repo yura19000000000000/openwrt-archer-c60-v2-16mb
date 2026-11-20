@@ -28,34 +28,34 @@ jobs:
           REPO_URL="https://github.com""/openwrt/openwrt.git"
           git clone --depth 1 --branch v23.05.5 "$REPO_URL" openwrt
 
-      - name: Patch Archer C60 v2 for 16MB Flash (DTS and Makefile)
+      - name: Patch Archer C60 v2 for 16MB Flash
         working-directory: openwrt
         run: |
-          python3 - << 'EOF'
-          import glob, os, re
+          python3 -c '
+          import glob, re
 
           # 1. Правка Makefile (generic-tp-link.mk)
           mk_path = "target/linux/ath79/image/generic-tp-link.mk"
           with open(mk_path, "r") as f:
               mk = f.read()
           mk_new = re.sub(
-              r'(define Device/tplink_archer-c60-v2.*?IMAGE_SIZE := )\d+k',
-              r'\g<1>16064k',
+              r"(define Device/tplink_archer-c60-v2.*?IMAGE_SIZE := )\d+k",
+              r"\g<1>16064k",
               mk,
               flags=re.S
           )
-          assert mk != mk_new, "Не удалось обновить IMAGE_SIZE в generic-tp-link.mk"
+          assert mk != mk_new, "Failed to patch generic-tp-link.mk"
           with open(mk_path, "w") as f:
               f.write(mk_new)
           print("OK: generic-tp-link.mk patched")
 
-          # 2. Автопоиск и правка нужного DTS/DTSI файла для Archer C60 v2
+          # 2. Автопоиск и правка DTS/DTSI для Archer C60 v2
           dts_patched = False
           for path in glob.glob("target/linux/ath79/dts/*archer-c60*"):
               with open(path, "r") as f:
                   data = f.read()
               if "0x7d0000" in data and "0x7f0000" in data:
-                  data = re.sub(r'reg = <0x020000 0x7[a-f0-9]+>;', 'reg = <0x020000 0xfb0000>;', data)
+                  data = re.sub(r"reg = <0x020000 0x7[a-f0-9]+>;", "reg = <0x020000 0xfb0000>;", data)
                   data = data.replace("partition@7d0000 {", "partition@fd0000 {")
                   data = data.replace("reg = <0x7d0000 0x020000>;", "reg = <0xfd0000 0x020000>;")
                   data = data.replace("partition@7f0000 {", "partition@ff0000 {")
@@ -64,52 +64,18 @@ jobs:
                       f.write(data)
                   print(f"OK: {path} patched")
                   dts_patched = True
-          assert dts_patched, "Не найден DTS файл с разметкой 0x7d0000 / 0x7f0000"
-          EOF
+          assert dts_patched, "DTS file with 0x7d0000/0x7f0000 not found"
+          '
 
-          # 3. Создаем патч для утилиты tplink-safeloader.c под 16 МБ
-          mkdir -p tools/firmware-utils/patches
-          cat << 'EOF' > tools/firmware-utils/patches/999-archer-c60-v2-16mb.patch
-          --- a/src/tplink-safeloader.c
-          +++ b/src/tplink-safeloader.c
-          @@ -1747,19 +1747,19 @@ static struct device_info boards[] = {
-           		.partitions = {
-           			{"fs-uboot", 0x00000, 0x10000},
-           			{"mac", 0x10000, 0x10000},
-          -			{"os-image", 0x20000, 0x1a0000},
-          -			{"file-system", 0x1c0000, 0x610000},
-          -			{"default-mac", 0x7d0000, 0x00200},
-          -			{"pin", 0x7d0200, 0x00200},
-          -			{"device-id", 0x7d0400, 0x00400},
-          -			{"product-info", 0x7d0800, 0x00800},
-          -			{"partition-table", 0x7d1000, 0x01000},
-          -			{"soft-version", 0x7d2000, 0x01000},
-          -			{"support-list", 0x7d3000, 0x01000},
-          -			{"profile", 0x7d4000, 0x03000},
-          -			{"default-config", 0x7d7000, 0x04000},
-          -			{"user-config", 0x7db000, 0x04000},
-          -			{"extra-para", 0x7df000, 0x01000},
-          -			{"certyficate", 0x7e8000, 0x08000},
-          -			{"radio", 0x7f0000, 0x10000},
-          +			{"os-image", 0x20000, 0x1a0000},
-          +			{"file-system", 0x1c0000, 0xe10000},
-          +			{"default-mac", 0xfd0000, 0x00200},
-          +			{"pin", 0xfd0200, 0x00200},
-          +			{"device-id", 0xfd0400, 0x00400},
-          +			{"product-info", 0xfd0800, 0x00800},
-          +			{"partition-table", 0xfd1000, 0x01000},
-          +			{"soft-version", 0xfd2000, 0x01000},
-          +			{"support-list", 0xfd3000, 0x01000},
-          +			{"profile", 0xfd4000, 0x03000},
-          +			{"default-config", 0xfd7000, 0x04000},
-          +			{"user-config", 0xfdb000, 0x04000},
-          +			{"extra-para", 0xfdf000, 0x01000},
-          +			{"certyficate", 0xfe8000, 0x08000},
-          +			{"radio", 0xff0000, 0x10000},
-           			{NULL, 0, 0}
-           		},
-          EOF
+          # 3. Автоматический патчинг tplink-safeloader.c при распаковке firmware-utils
+          cat >> tools/firmware-utils/Makefile << 'EOF'
 
+          define Host/PatchArcherC60V2
+          	$(SED) 's/{"file-system", 0x1c0000, 0x610000}/{"file-system", 0x1c0000, 0xe10000}/g' $(HOST_BUILD_DIR)/src/tplink-safeloader.c
+          	$(SED) 's/0x7d0000,/0xfd0000,/g; s/0x7d0200,/0xfd0200,/g; s/0x7d0400,/0xfd0400,/g; s/0x7d0800,/0xfd0800,/g; s/0x7d1000,/0xfd1000,/g; s/0x7d2000,/0xfd2000,/g; s/0x7d3000,/0xfd3000,/g; s/0x7d4000,/0xfd4000,/g; s/0x7d7000,/0xfd7000,/g; s/0x7db000,/0xfdb000,/g; s/0x7df000,/0xfdf000,/g; s/0x7e8000,/0xfe8000,/g; s/0x7f0000,/0xff0000,/g' $(HOST_BUILD_DIR)/src/tplink-safeloader.c
+          endef
+          Hooks/HostPrepare/Post += Host/PatchArcherC60V2
+          EOF
 
       - name: Update and install feeds
         working-directory: openwrt
@@ -136,3 +102,4 @@ jobs:
         with:
           name: openwrt-archer-c60-v2-16mb
           path: openwrt/bin/targets/ath79/generic/*tplink_archer-c60-v2*
+
