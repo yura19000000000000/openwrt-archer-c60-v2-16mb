@@ -25,7 +25,7 @@ jobs:
 
       - name: Clone OpenWrt v23.05.5
         run: |
-          git clone --depth 1 --branch v23.05.5 https://openwrt.org openwrt
+          git clone --depth 1 --branch v23.05.5 https://github.com openwrt
 
       - name: Patch Archer C60 v2 for 16MB Flash (DTS and Makefile)
         working-directory: openwrt
