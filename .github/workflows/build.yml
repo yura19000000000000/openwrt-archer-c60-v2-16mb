@@ -31,10 +31,8 @@ jobs:
       - name: Patch Archer C60 v2 for 16MB Flash
         working-directory: openwrt
         run: |
-          # 1. Увеличиваем лимит размера образа в generic-tp-link.mk до 16064k
           sed -i '/define Device\/tplink_archer-c60-v2/,/endef/ s/IMAGE_SIZE := .*/IMAGE_SIZE := 16064k/' target/linux/ath79/image/generic-tp-link.mk
 
-          # 2. Обновляем разметку разделов во всех DTS/DTSI файлах Archer C60 под 16 МБ
           for f in target/linux/ath79/dts/*archer-c60*; do
             sed -i 's/reg = <0x020000 0x7[a-f0-9]\+>;/reg = <0x020000 0xfb0000>;/g' "$f"
             sed -i 's/partition@7d0000 {/partition@fd0000 {/g' "$f"
@@ -43,10 +41,8 @@ jobs:
             sed -i 's/reg = <0x7f0000 0x010000>;/reg = <0xff0000 0x010000>;/g' "$f"
           done
 
-          # 3. Добавляем автоматический патчинг tplink-safeloader.c при сборке утилит
           printf '\ndefine Host/PatchArcherC60V2\n\t$(SED) '\''s/{"file-system", 0x1c0000, 0x610000}/{"file-system", 0x1c0000, 0xe10000}/g'\'' $(HOST_BUILD_DIR)/src/tplink-safeloader.c\n\t$(SED) '\''s/0x7d0000,/0xfd0000,/g; s/0x7d0200,/0xfd0200,/g; s/0x7d0400,/0xfd0400,/g; s/0x7d0800,/0xfd0800,/g; s/0x7d1000,/0xfd1000,/g; s/0x7d2000,/0xfd2000,/g; s/0x7d3000,/0xfd3000,/g; s/0x7d4000,/0xfd4000,/g; s/0x7d7000,/0xfd7000,/g; s/0x7db000,/0xfdb000,/g; s/0x7df000,/0xfdf000,/g; s/0x7e8000,/0xfe8000,/g; s/0x7f0000,/0xff0000,/g'\'' $(HOST_BUILD_DIR)/src/tplink-safeloader.c\nendef\nHooks/HostPrepare/Post += Host/PatchArcherC60V2\n' >> tools/firmware-utils/Makefile
 
-          # Проверка, что правки применились
           grep -A 5 "define Device/tplink_archer-c60-v2" target/linux/ath79/image/generic-tp-link.mk
           grep -n "0xfb0000\|0xfd0000\|0xff0000" target/linux/ath79/dts/*archer-c60*
           tail -n 6 tools/firmware-utils/Makefile
@@ -76,4 +72,5 @@ jobs:
         with:
           name: openwrt-archer-c60-v2-16mb
           path: openwrt/bin/targets/ath79/generic/*tplink_archer-c60-v2*
+
 
